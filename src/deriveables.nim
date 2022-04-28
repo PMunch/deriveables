@@ -1,30 +1,75 @@
+## This module implements deriveable types. The concept is simple, you supply
+## converters to go from one or more types into another type, then you can
+## define procedures with a nice type signature and tell the system to derive
+## the procedure from the converters. This generates a new procedure which takes
+## the base type, runs all the necessarry converters, and calls the initial
+## typed procedure.
+##
+## Example:
+## In the Jester web framework you get access to the ``Request`` object in your
+## routes. From this object you're going to exract the information about the
+## request that you need and then perform the logic of the route. This means
+## that routes typically contain quite a bit of parsing logic. With this library
+## you can create procedures that only does the extraction, then procedures
+## which only does the business logic, and simply tell this library to glue them
+## together.
+##
+## .. code-block:: nim
+##   import jester, strutils, json, deriveables
+##
+##   type
+##     UserID = distinct int
+##     User = object
+##       name: string
+##
+##   # Define ways to get various things from a request, this would typically be
+##   # done with parsing, verification and database access
+##   proc getUserId(r: Request): UserId {.deriveable.} =
+##     return UserID(r.params["id"].parseInt)
+##
+##   proc getUser(u: UserID): User {.deriveable.} =
+##    # Do database lookup for the user ID and return a user object
+##    discard
+##
+##   # Define our route bodies purely on our logical types, then derive a
+##   # procedure from a set of given types
+##   proc showUser(p: User): string {.derive: Request.} =
+##     "<html><body>This is the page for user " & p.name & "</body></html>"
+##
+##   # Set up our routes, call our logical routes with the request object and
+##   # the system will figure out how to derive the actual types
+##   routes:
+##     get "/user/@id": resp showUser(request)
+##
+## If a type conversion fails it will throw a ``DerivingError`` which just wraps
+## the actual error. This means that it's easy to distinguish errors happening
+## during the conversion and errors happening during the execution of a
+## procedure itself.
+
 import macros, tables, hashes, sequtils, sets
 
 type
   NimTypeNode = distinct NimNode
-  DerivingError = object of CatchableError
+  DerivingError* = object of CatchableError
 
-var routeTypes {.compileTime.}: Table[NimTypeNode, tuple[conv: NimNode, types: seq[NimTypeNode]]]
+var deriveableTypes {.compileTime.}: Table[NimTypeNode, tuple[conv: NimNode, types: seq[NimTypeNode]]]
 
 proc hash(x: NimTypeNode): Hash =
-  result = if x.NimNode.getImpl.kind != nnkNilLit:
-    hash(x.NimNode.getImpl.repr)
-  else:
-    hash(x.NimNode.signatureHash)
+  hash(x.NimNode.signatureHash)
 
 proc `==`(x, y: NimTypeNode): bool =
-  result = if x.NimNode.getImpl.kind != nnkNilLit:
-    x.NimNode.getImpl == y.NimNode.getImpl
-  else:
-    let
-      x = if x.NimNode.typeKind == ntyTypedesc: x.NimNode.getType[1] else: x.NimNode.getType
-      y = if y.NimNode.typeKind == ntyTypedesc: y.NimNode.getType[1] else: y.NimNode.getType
-    x.sameType y
+  let
+    x = if x.NimNode.typeKind == ntyTypedesc: x.NimNode.getType[1] else: x.NimNode.getType
+    y = if y.NimNode.typeKind == ntyTypedesc: y.NimNode.getType[1] else: y.NimNode.getType
+  x.sameType y
 
 proc `$`(x: NimTypeNode): string =
   x.NimNode.repr
 
 macro derive*(types: typed, ys: varargs[typed]): untyped =
+  ## Can either be attached as a custom pragma or called on a previous
+  ## definition. Takes a list of the types for the new signature of the proc.
+  ## Both the old and the derived definition will exist.
   result = newStmtList()
   for y in ys:
     let
@@ -44,10 +89,10 @@ macro derive*(types: typed, ys: varargs[typed]): untyped =
       while requiredTypes.card != 0:
         for t in requiredTypes:
           if t in initialTypes: continue
-          elif not routeTypes.hasKey(t):
+          elif not deriveableTypes.hasKey(t):
             error("No procedure defined to get " & $t.repr, t.NimNode)
           else:
-            let mapping = routeTypes[t]
+            let mapping = deriveableTypes[t]
             mappings[i-1].insert mapping.conv
             visitedTypes.incl t
             for it in mapping.types:
@@ -86,6 +131,10 @@ macro derive*(types: typed, ys: varargs[typed]): untyped =
   #echo result.repr
 
 macro deriveable*(procDefs: varargs[typed]): untyped =
+  ## Marks a procedure as supplying a derivation. This means that it takes one
+  ## or more types, and returns a type. You can either attach this as a custom
+  ## pragma, or you can call it after having defined your procedure and pass a
+  ## list of procedures to add.
   result = newStmtList()
   for procDef in procDefs:
     let x = if procDef.kind == nnkSym: procDef.getImpl else: procDef
@@ -93,9 +142,9 @@ macro deriveable*(procDefs: varargs[typed]): untyped =
     var types: seq[NimTypeNode]
     for t in 1..<x[3].len:
       types.add x[3][t][1].NimTypeNode
-    if routeTypes.hasKey(x[3][0].NimTypeNode):
-      error("Only one procedure can provide a type, previously defined procedure for type " & x[3][0].repr & " was: " & routeTypes[x[3][0].NimTypeNode].repr, x)
+    if deriveableTypes.hasKey(x[3][0].NimTypeNode):
+      error("Only one procedure can provide a type, previously defined procedure for type " & x[3][0].repr & " was: " & deriveableTypes[x[3][0].NimTypeNode].repr, x)
     else:
-      routeTypes[x[3][0].NimTypeNode] = (conv: x, types: types)
+      deriveableTypes[x[3][0].NimTypeNode] = (conv: x, types: types)
     if procDef.kind != nnkSym:
       result.add procDef
