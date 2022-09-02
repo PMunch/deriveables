@@ -7,7 +7,7 @@
 ##
 ## Example:
 ## In the Jester web framework you get access to the ``Request`` object in your
-## routes. From this object you're going to exract the information about the
+## routes. From this object you're going to extract the information about the
 ## request that you need and then perform the logic of the route. This means
 ## that routes typically contain quite a bit of parsing logic. With this library
 ## you can create procedures that only does the extraction, then procedures
@@ -31,10 +31,16 @@
 ##    # Do database lookup for the user ID and return a user object
 ##    discard
 ##
+##   # You could also attach the deriveable pragma to existing procs instead of
+##   # the above pragma:
+##   # deriveable(getUserId, getUser)
+##
 ##   # Define our route bodies purely on our logical types, then derive a
 ##   # procedure from a set of given types
 ##   proc showUser(p: User): string {.derive: Request.} =
 ##     "<html><body>This is the page for user " & p.name & "</body></html>"
+##     # If you want to automatically convert types to HTML via templates have
+##     # a look at PMunch/autotemplate
 ##
 ##   # Set up our routes, call our logical routes with the request object and
 ##   # the system will figure out how to derive the actual types
