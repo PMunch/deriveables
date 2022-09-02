@@ -17,6 +17,7 @@ which only does the business logic, and simply tell this library to glue them
 together.
 
 .. code-block:: nim
+
   import jester, strutils, json, deriveables
 
   type

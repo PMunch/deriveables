@@ -15,6 +15,7 @@
 ## together.
 ##
 ## .. code-block:: nim
+##
 ##   import jester, strutils, json, deriveables
 ##
 ##   type
